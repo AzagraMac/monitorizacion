@@ -1,0 +1,110 @@
+---
+version: '3.6'
+services:
+  telegraf:
+    image: telegraf:latest
+    container_name: telegraf
+    networks:
+      - metricas
+    restart: always
+    volumes:
+      - /home/$USER/docker/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf
+      - /usr/share/snmp/mibs:/usr/share/snmp/mibs:ro
+      - /var/lib/mibs/iana:/var/lib/mibs/iana:ro
+      - /var/lib/mibs/ietf:/var/lib/mibs/ietf:ro
+    depends_on:
+      - influxdb
+    links:
+      - influxdb
+    ports:
+      - '8125:8125'
+
+  influxdb:
+    image: influxdb:latest
+    container_name: influxdb
+    networks:
+      - metricas
+    restart: always
+    environment:
+      - INFLUXDB_DB=influxdb
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=admin1234
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=admin1234
+      - DOCKER_INFLUXDB_INIT_ORG=home
+      - DOCKER_INFLUXDB_INIT_BUCKET=snmp
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${YOUR_TOKEN}
+    ports:
+      - '8083:8083'
+      - '8086:8086'
+      - '8090:8090'
+      - '9999:9999'
+    volumes:
+      - 'influxdb_storage:/var/lib/influxdb'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    networks:
+      - metricas
+    restart: always
+    depends_on:
+      - influxdb
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,briangann-gauge-panel,natel-plotly-panel,grafana-simple-json-datasource
+    user: "472"
+    links:
+      - influxdb
+    ports:
+      - '3000:3000'
+    volumes:
+      - 'grafana_storage:/var/lib/grafana'
+
+  prometheus:
+    container_name: prometheus
+    image: quay.io/prometheus/prometheus:v2.26.0
+    volumes:
+      - /home/$USER/docker/prometheus/config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - /home/$USER/docker/prometheus/rules:/etc/prometheus/rules
+    command: "--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus"
+    ports:
+      - 9090:9090
+
+  node-exporter:
+    privileged: true
+    image: prom/node-exporter
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.ignored-mount-points"
+      - "^/(rootfs/)?(dev|etc|host|proc|run|sys|volume1)($$|/)"
+
+  snmp-exporter:
+    image: prom/snmp-exporter
+    container_name: snmp_exporter
+    restart: unless-stopped
+    volumes:
+      - /home/$USER/docker/snmp-exporter/snmp.yml:/etc/snmp_exporter/snmp.yml
+    ports:
+      - 9116:9116
+    command:
+      - "--config.file=/etc/snmp_exporter/snmp.yml"
+
+volumes:
+  grafana_storage: {}
+  influxdb_storage: {}
+
+networks:
+   metricas:
+      external: true
